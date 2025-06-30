@@ -1,101 +1,37 @@
-#include <Servo.h>
+// Replace these with your Blynk template info
+#define BLYNK_TEMPLATE_ID "TemplateID"
+#define BLYNK_TEMPLATE_NAME "Smart Bin"
+#define BLYNK_AUTH_TOKEN "AuthToken"
 
-// --- Pin Definitions ---
-const int pirPin = 7;
-const int servoPin = 3;
-const int trigPin = 10;
-const int echoPin = 11;
-const int redLED = 8;
-const int yellowLED = 9;
-const int blueLED = 6;
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
 
-Servo lidServo;
-
-// --- Variables ---
-long duration;
-int distance;
-const int binHeight = 38; // cm
-int fillLevel = 0;
-bool motionDetected = false;
-bool lidOpen = false;
-unsigned long motionEndTime = 0;
+char ssid[] = "smartbin";       // Your Wi-Fi name (2.4GHz only)
+char pass[] = "toniella1";   // Your Wi-Fi password
 
 void setup() {
-  Serial.begin(9600);
-  
-  pinMode(pirPin, INPUT);
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-  pinMode(redLED, OUTPUT);
-  pinMode(yellowLED, OUTPUT);
-  pinMode(blueLED, OUTPUT);
-
-  lidServo.attach(servoPin);
-  lidServo.write(0); // Start with lid closed
+  Serial.begin(9600);  // Read from Arduino
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
 }
 
 void loop() {
-  // --- Measure Fill Level (Ultrasonic) ---
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
+  Blynk.run();
 
-  duration = pulseIn(echoPin, HIGH, 30000); // 30ms timeout
-  if (duration == 0) {
-    Serial.println("⚠️ No echo detected – bin likely empty or issue.");
-  } else {
-    distance = duration * 0.034 / 2;
-    fillLevel = map(distance, 2, binHeight, 100, 0);
-    fillLevel = constrain(fillLevel, 0, 100);
+  if (Serial.available()) {
+    String input = Serial.readStringUntil('\n');
 
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.print(" cm | Fill Level: ");
-    Serial.print(fillLevel);
-    Serial.println(" %");
-  }
+    // Expected format: "FILL:67;MOTION:DETECTED"
+    int fillIndex = input.indexOf("FILL:");
+    int motionIndex = input.indexOf("MOTION:");
 
-  // --- PIR Motion Detection ---
-  int motion = digitalRead(pirPin);
+    if (fillIndex != -1 && motionIndex != -1) {
+      int fillLevel = input.substring(fillIndex + 5, input.indexOf(';')).toInt();
+      String motion = input.substring(motionIndex + 7);
 
-  if (motion == HIGH) {
-    // BLUE LED = Person detected
-    digitalWrite(blueLED, HIGH);
-    digitalWrite(redLED, LOW);
-    digitalWrite(yellowLED, LOW);
-
-    if (!lidOpen) {
-      lidServo.write(90); // Open lid
-      Serial.println("LID OPEN");
-      lidOpen = true;
-    }
-
-    motionDetected = true;
-    motionEndTime = millis(); // Reset hold timer
-  } else {
-    if (motionDetected && (millis() - motionEndTime < 3000)) {
-      // YELLOW LED = Recently detected
-      digitalWrite(yellowLED, HIGH);
-      digitalWrite(blueLED, LOW);
-      digitalWrite(redLED, LOW);
-      Serial.println("RECENT MOTION – HOLDING YELLOW LED");
-    } else {
-      // RED LED = No motion
-      digitalWrite(redLED, HIGH);
-      digitalWrite(blueLED, LOW);
-      digitalWrite(yellowLED, LOW);
-
-      if (lidOpen) {
-        lidServo.write(0); // Close lid
-        Serial.println("LID CLOSED");
-        lidOpen = false;
-      }
-
-      motionDetected = false;
+      // Send to Blynk
+      Blynk.virtualWrite(V0, fillLevel);   // Fill Level (%)
+      Blynk.virtualWrite(V1, motion);      // Motion: DETECTED or NOT DETECTED
+      Blynk.virtualWrite(V2, 1);           // Online flag
     }
   }
-
-  delay(500);
 }
